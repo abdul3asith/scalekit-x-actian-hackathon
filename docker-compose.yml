@@ -19,5 +19,19 @@ services:
       timeout: 3s
       retries: 10
 
+  # Actian VectorAI DB (per-user isolated memory).
+  # Ports: 6573 REST, 6574 gRPC (the client connects here), 6575 local UI.
+  vectorai:
+    image: actian/vectorai:latest
+    container_name: scheduler_vectorai
+    restart: unless-stopped
+    environment:
+      ACTIAN_VECTORAI_ACCEPT_EULA: "YES"
+    ports:
+      - "6573-6575:6573-6575"
+    volumes:
+      - vectorai_data:/var/lib/actian-vectorai
+
 volumes:
   postgres_data:
+  vectorai_data:

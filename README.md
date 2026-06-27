@@ -35,8 +35,6 @@ number, which was bound to a Scalekit identity during a one-time web login.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-# point ACTIAN_WHEEL at the provided wheel to enable vector memory (optional):
-export ACTIAN_WHEEL=/path/to/actian_vectorai-0.1.0b2-py3-none-any.whl
 bash scripts/install.sh
 ```
 
@@ -45,9 +43,9 @@ bash scripts/install.sh
 cp .env.example .env   # then fill in NEBIUS_API_KEY, SCALEKIT_*, BACKEND_API_KEY, etc.
 ```
 
-### 3. Start Postgres (schema auto-applies on first boot)
+### 3. Start Postgres + Actian VectorAI (Postgres schema auto-applies on first boot)
 ```bash
-docker compose up -d postgres
+docker compose up -d
 ```
 
 ### 4. Run the backend
@@ -103,7 +101,8 @@ curl -N -X POST http://localhost:8000/chat/completions \
   -d '{"messages":[{"role":"user","content":"What shifts do I have this week?"}]}'
 ```
 
-> **Note on Actian:** the client API in `app/data/memory.py` mirrors the documented
-> Qdrant-style surface and is isolated to one adapter class. Confirm the exact API of
-> the installed wheel and adjust there if needed. Set `ACTIAN_ENABLED=false` to run the
-> scheduling demo without vector memory.
+> **Actian VectorAI:** `docker compose up` starts the server (gRPC on `:6574`). The client
+> (`pip install actian-vectorai-client`, in `scripts/install.sh`) and the adapter in
+> `app/data/memory.py` are verified against `actian-vectorai-client 1.0.1`. Each staff
+> member gets an isolated `user-<staff_id>-memories` collection. Set `ACTIAN_ENABLED=false`
+> to run the scheduling demo without vector memory.

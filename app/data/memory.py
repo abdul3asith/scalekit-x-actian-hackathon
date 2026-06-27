@@ -5,10 +5,10 @@ user's vectors are physically separate from another's. Embeddings come from
 Nebius (see app/llm/nebius.py); the collection's vector size must equal
 ``settings.embed_dim``.
 
-The Actian client API is centralized in the ``_AdapterActian`` class below -- it
-mirrors the documented Qdrant-style surface and is the ONE place to adjust once
-the exact API of the installed wheel is confirmed. If Actian is disabled or the
-client isn't installed, memory degrades to a no-op so scheduling still works.
+The Actian client API is centralized in the ``_AdapterActian`` class below --
+verified against actian-vectorai-client 1.0.1 (see docs.vectoraidb.actian.com).
+If Actian is disabled or the client isn't installed, memory degrades to a no-op
+so scheduling still works.
 """
 
 from __future__ import annotations
@@ -51,15 +51,14 @@ class _AdapterActian:
     """
 
     def __init__(self) -> None:
-        # A single long-lived client, reused across calls (gRPC is thread-safe).
-        self._client = VectorAIClient(f"{settings.actian_host}:{settings.actian_port}")
+        self._addr = f"{settings.actian_host}:{settings.actian_port}"
         self._known_collections: set[str] = set()
 
-    def _ensure_collection(self, name: str) -> None:
+    def _ensure_collection(self, client: Any, name: str) -> None:
         if name in self._known_collections:
             return
         try:
-            self._client.collections.create(
+            client.collections.create(
                 name,
                 vectors_config=VectorParams(
                     size=settings.embed_dim, distance=Distance.Cosine
@@ -69,21 +68,30 @@ class _AdapterActian:
             pass
         self._known_collections.add(name)
 
+    @staticmethod
+    def _text_of(result: Any) -> str:
+        payload = getattr(result, "payload", None)
+        if isinstance(payload, dict):
+            return payload.get("text", "")
+        return ""
+
     def upsert(self, staff_id: str, vector: list[float], text: str) -> None:
         name = _collection_name(staff_id)
-        self._ensure_collection(name)
-        point = PointStruct(
-            id=uuid.uuid4().int >> 64,  # 64-bit id
-            vector=vector,
-            payload={"text": text},
-        )
-        self._client.points.upsert(name, [point])
+        with VectorAIClient(self._addr) as client:
+            self._ensure_collection(client, name)
+            point = PointStruct(
+                id=uuid.uuid4().int >> 64,  # 64-bit id
+                vector=vector,
+                payload={"text": text},
+            )
+            client.points.upsert(name, [point])
 
     def search(self, staff_id: str, vector: list[float], k: int) -> list[str]:
         name = _collection_name(staff_id)
-        self._ensure_collection(name)
-        results = self._client.points.search(name, vector=vector, limit=k)
-        return [r.payload.get("text", "") for r in results]
+        with VectorAIClient(self._addr) as client:
+            self._ensure_collection(client, name)
+            results = client.points.search(name, vector=vector, limit=k)
+            return [t for t in (self._text_of(r) for r in results) if t]
 
 
 _adapter: _AdapterActian | None = None

@@ -19,13 +19,8 @@ echo "==> Reasserting protobuf / grpcio-status versions the Actian client needs"
 echo "    (overrides Scalekit's protobuf<7 and grpcio-status<1.67 caps -- intentional)"
 pip install "protobuf>=6.31.1,<7" "grpcio-status>=1.67.0"
 
-if [ -n "${ACTIAN_WHEEL:-}" ]; then
-  echo "==> Installing Actian VectorAI client from ${ACTIAN_WHEEL}"
-  pip install "${ACTIAN_WHEEL}"
-else
-  echo "==> ACTIAN_WHEEL not set. Set ACTIAN_WHEEL=/path/to/actian_vectorai-*.whl"
-  echo "    (or 'pip install actian-vectorai-client') to enable vector memory."
-fi
+echo "==> Installing Actian VectorAI client"
+pip install actian-vectorai-client
 
 echo "==> Verifying dependency tree"
 pip check || echo "(pip check reported issues — review the output above)"
