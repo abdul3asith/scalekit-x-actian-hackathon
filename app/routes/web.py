@@ -3,6 +3,7 @@ This is the bridge that lets a later voice call resolve to a real staff_id."""
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Form, Request
@@ -13,6 +14,7 @@ from app.auth.identity import normalize_phone, upsert_staff
 from app.data.db import connection
 
 router = APIRouter(tags=["web"])
+logger = logging.getLogger("uvicorn.error")
 
 
 @router.get("/auth/login")
@@ -29,13 +31,34 @@ async def login(request: Request):
 
 
 @router.get("/auth/callback")
-async def callback(request: Request, code: str | None = None, state: str | None = None):
-    if not code:
-        return HTMLResponse("<p>Missing authorization code.</p>", status_code=400)
-    if state and state != request.session.get("oauth_state"):
-        return HTMLResponse("<p>Invalid state.</p>", status_code=400)
+async def callback(
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+):
+    # Diagnostic: which params arrived (keys only -- never log the code itself).
+    logger.info("auth/callback params: %s", list(request.query_params.keys()))
 
-    identity = scalekit.authenticate(code)
+    if error:
+        return HTMLResponse(
+            f"<h3>Scalekit returned an error</h3><p><b>{error}</b><br>{error_description or ''}</p>",
+            status_code=400,
+        )
+    if not code:
+        return HTMLResponse(
+            "<h3>Missing authorization code</h3>"
+            "<p>Don't open this page directly. Start at "
+            "<a href='/auth/login'>/auth/login</a> and complete sign-in.</p>",
+            status_code=400,
+        )
+    try:
+        identity = scalekit.authenticate(code)
+    except Exception as exc:  # noqa: BLE001 - surface exchange failures to the screen
+        logger.exception("authenticate_with_code failed")
+        return HTMLResponse(f"<h3>Auth exchange failed</h3><pre>{exc}</pre>", status_code=400)
+
     request.session["identity"] = identity
     return RedirectResponse("/register-phone", status_code=302)
 
