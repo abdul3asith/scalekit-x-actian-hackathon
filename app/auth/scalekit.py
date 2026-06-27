@@ -61,7 +61,12 @@ def _coerce(obj: Any, *names: str) -> Any:
 
 
 def authenticate(code: str) -> dict[str, Any]:
-    """Exchange an auth code for the verified user identity."""
+    """Exchange an auth code for the verified user identity.
+
+    The SDK returns ``{"user": {...}, "organization_id": <oid>, "id_token": ...}``
+    where ``user`` maps claims to camelCase (sub->id, name, email, givenName, ...)
+    and ``organization_id`` sits at the TOP LEVEL (from the ``oid`` claim).
+    """
     result = get_client().authenticate_with_code(
         code, settings.scalekit_redirect_uri, CodeAuthenticationOptions()
     )
@@ -69,6 +74,9 @@ def authenticate(code: str) -> dict[str, Any]:
     return {
         "scalekit_user_id": _coerce(user, "id", "sub", "user_id"),
         "email": _coerce(user, "email"),
-        "full_name": _coerce(user, "name", "full_name", "given_name") or "Staff member",
-        "org_id": _coerce(user, "organization_id", "org_id"),
+        "full_name": _coerce(user, "name", "full_name", "givenName", "given_name")
+        or "Staff member",
+        # organization_id is top-level on the result; fall back to user/oid just in case.
+        "org_id": _coerce(result, "organization_id", "org_id", "oid")
+        or _coerce(user, "organization_id", "oid"),
     }

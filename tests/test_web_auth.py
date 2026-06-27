@@ -75,36 +75,33 @@ def test_register_phone_persists_mapping(client):
             conn.commit()
 
 
-def test_authenticate_maps_identity_attr_shape(monkeypatch):
-    class FakeUser:
-        id = "usr_1"
-        email = "a@b.com"
-        name = "Alice A"
-        organization_id = "org_1"
-
-    class FakeResult:
-        user = FakeUser()
+def test_authenticate_maps_real_scalekit_shape(monkeypatch):
+    """Mirrors the real authenticate_with_code() return: a ``user`` dict (claims
+    mapped to camelCase) plus ``organization_id`` at the TOP LEVEL. Values are
+    taken from a real Scalekit ID token."""
+    real = {
+        "user": {
+            "id": "usr_131753913350095874",
+            "name": "Haseeb Khan",
+            "givenName": "Haseeb",
+            "familyName": "Khan",
+            "email": "haseebkhanyt@gmail.com",
+            "emailVerified": True,
+        },
+        "id_token": "eyJ...",
+        "access_token": "eyJ...",
+        "organization_id": "org_131753913266209794",
+    }
 
     class FakeClient:
         def authenticate_with_code(self, code, redirect_uri, options):
-            return FakeResult()
+            return real
 
     monkeypatch.setattr(scalekit, "get_client", lambda: FakeClient())
     ident = scalekit.authenticate("dummy-code")
     assert ident == {
-        "scalekit_user_id": "usr_1",
-        "email": "a@b.com",
-        "full_name": "Alice A",
-        "org_id": "org_1",
+        "scalekit_user_id": "usr_131753913350095874",
+        "email": "haseebkhanyt@gmail.com",
+        "full_name": "Haseeb Khan",
+        "org_id": "org_131753913266209794",
     }
-
-
-def test_authenticate_maps_identity_dict_shape(monkeypatch):
-    class FakeClient:
-        def authenticate_with_code(self, code, redirect_uri, options):
-            return {"user": {"id": "u2", "email": "x@y.com", "name": "Bob B"}}
-
-    monkeypatch.setattr(scalekit, "get_client", lambda: FakeClient())
-    ident = scalekit.authenticate("dummy-code")
-    assert ident["scalekit_user_id"] == "u2"
-    assert ident["full_name"] == "Bob B"
