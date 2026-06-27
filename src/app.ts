@@ -1,4 +1,5 @@
 import express from "express";
+import scopeRouter from "./api/scope";
 import dbHealthRouter from "./db/health";
 
 const app = express();
@@ -10,5 +11,6 @@ app.get("/", (_req, res) => {
 });
 
 app.use(dbHealthRouter);
+app.use("/scope", scopeRouter);
 
 export default app;

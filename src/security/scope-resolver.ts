@@ -1,58 +1,161 @@
-import { AccessDecision, AccessRequest } from "./scope.types";
+import { db } from "../db";
 
-export function resolveScope(request: AccessRequest): AccessDecision {
-  const { actor, target, resource, operation } = request;
+type ScopeDecision = {
+  allowed: boolean;
+  scope: "self" | "manager_site" | "admin" | "blocked";
+  reason: string;
+};
 
-  const targetEmployeeId = target?.employeeId || actor.employeeId;
+async function writeAuditLog(params: {
+  actorEmployeeId: string;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  decision: "allowed" | "blocked";
+  reason: string;
+}) {
+  await db.query(
+    `
+    INSERT INTO audit_logs 
+    (actor_employee_id, action, resource_type, resource_id, decision, reason)
+    VALUES ($1, $2, $3, $4, $5, $6)
+    `,
+    [
+      params.actorEmployeeId,
+      params.action,
+      params.resourceType,
+      params.resourceId,
+      params.decision,
+      params.reason,
+    ]
+  );
+}
 
-  if (actor.role === "employee") {
-    if (targetEmployeeId !== actor.employeeId) {
+export async function resolveEmployeeAccess(params: {
+  actorEmployeeId: string;
+  targetEmployeeId: string;
+  action?: string;
+}): Promise<ScopeDecision> {
+  const action = params.action || "read_employee_data";
+
+  const actorResult = await db.query(
+    `SELECT id, role, is_active FROM employees WHERE id = $1`,
+    [params.actorEmployeeId]
+  );
+
+  const targetResult = await db.query(
+    `SELECT id, role, is_active FROM employees WHERE id = $1`,
+    [params.targetEmployeeId]
+  );
+
+  const actor = actorResult.rows[0];
+  const target = targetResult.rows[0];
+
+  if (!actor || !actor.is_active) {
+    return {
+      allowed: false,
+      scope: "blocked",
+      reason: "Actor employee not found or inactive",
+    };
+  }
+
+  if (!target || !target.is_active) {
+    await writeAuditLog({
+      actorEmployeeId: params.actorEmployeeId,
+      action,
+      resourceType: "employee",
+      resourceId: params.targetEmployeeId,
+      decision: "blocked",
+      reason: "Target employee not found or inactive",
+    });
+
+    return {
+      allowed: false,
+      scope: "blocked",
+      reason: "Target employee not found or inactive",
+    };
+  }
+
+  if (actor.role === "admin") {
+    await writeAuditLog({
+      actorEmployeeId: params.actorEmployeeId,
+      action,
+      resourceType: "employee",
+      resourceId: params.targetEmployeeId,
+      decision: "allowed",
+      reason: "Admin can access all employee data",
+    });
+
+    return {
+      allowed: true,
+      scope: "admin",
+      reason: "Admin access granted",
+    };
+  }
+
+  if (params.actorEmployeeId === params.targetEmployeeId) {
+    await writeAuditLog({
+      actorEmployeeId: params.actorEmployeeId,
+      action,
+      resourceType: "employee",
+      resourceId: params.targetEmployeeId,
+      decision: "allowed",
+      reason: "Employee accessed own data",
+    });
+
+    return {
+      allowed: true,
+      scope: "self",
+      reason: "Self access granted",
+    };
+  }
+
+  if (actor.role === "manager") {
+    const sharedSiteResult = await db.query(
+      `
+      SELECT 1
+      FROM employee_site_access manager_access
+      JOIN employee_site_access target_access
+        ON manager_access.site_id = target_access.site_id
+      WHERE manager_access.employee_id = $1
+        AND target_access.employee_id = $2
+        AND manager_access.can_work = true
+        AND target_access.can_work = true
+      LIMIT 1
+      `,
+      [params.actorEmployeeId, params.targetEmployeeId]
+    );
+
+    if (sharedSiteResult.rows.length > 0) {
+      await writeAuditLog({
+        actorEmployeeId: params.actorEmployeeId,
+        action,
+        resourceType: "employee",
+        resourceId: params.targetEmployeeId,
+        decision: "allowed",
+        reason: "Manager shares site access with target employee",
+      });
+
       return {
-        decision: "DENY",
-        filters: {},
-        redactions: [],
-        reason: "Employee cannot access another employee's data.",
+        allowed: true,
+        scope: "manager_site",
+        reason: "Manager site-level access granted",
       };
     }
-
-    return {
-      decision: "ALLOW",
-      filters: {
-        tenant_id: actor.tenantId,
-        employee_id: actor.employeeId,
-      },
-      redactions: [],
-      reason: "Employee can access their own data.",
-    };
   }
 
-  if (actor.role === "manager" || actor.role === "admin") {
-    return {
-      decision: "ALLOW",
-      filters: {
-        tenant_id: actor.tenantId,
-      },
-      redactions: [],
-      reason: `${actor.role} can access tenant-scoped ${resource} data.`,
-    };
-  }
-
-  if (actor.role === "supervisor") {
-    return {
-      decision: "ALLOW",
-      filters: {
-        tenant_id: actor.tenantId,
-        site_ids: actor.siteIds,
-      },
-      redactions: operation === "read" ? [] : ["payroll_sensitive_fields"],
-      reason: "Supervisor can access assigned site data.",
-    };
-  }
+  await writeAuditLog({
+    actorEmployeeId: params.actorEmployeeId,
+    action,
+    resourceType: "employee",
+    resourceId: params.targetEmployeeId,
+    decision: "blocked",
+    reason: "Actor is not allowed to access target employee data",
+  });
 
   return {
-    decision: "DENY",
-    filters: {},
-    redactions: [],
-    reason: "Unknown role or unsupported access request.",
+    allowed: false,
+    scope: "blocked",
+    reason: "Access denied",
   };
 }
