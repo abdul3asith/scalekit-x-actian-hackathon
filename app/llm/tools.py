@@ -9,9 +9,11 @@ from typing import Any
 import psycopg
 
 from app.data import memory, schedules
+from app.services import coverage_flow
 
 # OpenAI/Nebius tool schema. Datetimes are ISO-8601 strings (e.g. 2026-06-28T09:00:00).
-TOOL_SCHEMAS: list[dict[str, Any]] = [
+# Tools the INBOUND assistant can use (staff managing their own schedule).
+INBOUND_TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
@@ -119,7 +121,52 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "request_shift_coverage",
+            "description": (
+                "Start finding coverage for one of the caller's own shifts when they "
+                "request leave/time off for it. The backend calls same-role, available "
+                "staff one at a time until someone accepts."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "shift_id": {"type": "string", "description": "ID of the caller's shift to cover."},
+                },
+                "required": ["shift_id"],
+            },
+        },
+    },
 ]
+
+# Tools the OUTBOUND assistant can use (calling a candidate to cover a shift).
+OUTBOUND_TOOL_SCHEMAS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "respond_to_coverage",
+            "description": (
+                "Record whether the person you're calling will cover the shift. "
+                "Call this once they clearly accept or decline."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "accepted": {
+                        "type": "boolean",
+                        "description": "true if they agree to cover the shift, false if they decline.",
+                    },
+                },
+                "required": ["accepted"],
+            },
+        },
+    },
+]
+
+# Back-compat alias (the inbound set is the default).
+TOOL_SCHEMAS = INBOUND_TOOL_SCHEMAS
 
 
 async def dispatch(
@@ -127,8 +174,22 @@ async def dispatch(
     args: dict[str, Any],
     conn: psycopg.AsyncConnection,
     staff_id: str,
+    context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Execute one tool call against the data layer, scoped to staff_id."""
+    """Execute one tool call against the data layer, scoped to staff_id.
+
+    ``context`` carries coverage handoff data (coverage_request_id, candidate_staff_id)
+    for outbound calls; it is set from the call metadata, not from model arguments.
+    """
+    if name == "request_shift_coverage":
+        return await coverage_flow.start_coverage(conn, staff_id, args["shift_id"])
+    if name == "respond_to_coverage":
+        ctx = context or {}
+        crid = ctx.get("coverage_request_id")
+        candidate = ctx.get("candidate_staff_id")
+        if not crid or not candidate:
+            return {"ok": False, "error": "no_coverage_context", "message": "Missing coverage context."}
+        return await coverage_flow.handle_response(conn, crid, candidate, bool(args.get("accepted")))
     if name == "get_my_schedule":
         return await schedules.get_my_schedule(conn, staff_id, args.get("date_from"), args.get("date_to"))
     if name == "check_availability":

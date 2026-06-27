@@ -77,6 +77,42 @@ CONSTRAINT no_double_book EXCLUDE USING gist (
 Overlapping bookings raise an exclusion violation that `app/data/schedules.py` catches
 and returns to the agent as a clean "that overlaps an existing shift" message.
 
+## Shift coverage (two assistants + squad)
+
+When a staff member calls in and requests leave on one of their shifts, the system
+finds coverage by calling other staff:
+
+1. **Inbound assistant** — the caller asks for leave; the agent calls
+   `request_shift_coverage(shift_id)`.
+2. **Backend** opens a `coverage_request`, finds the next **same-role, available**
+   candidate, and places an **outbound VAPI call** (`POST /call`) using the
+   **Outbound assistant**, passing a handoff JSON as call metadata.
+3. **Outbound assistant** — asks the candidate to cover the shift; on accept it
+   calls `respond_to_coverage(accepted=true)` and the backend **reassigns the shift**
+   (the `no_double_book` constraint still guarantees no conflict). On decline, the
+   backend advances to the next candidate (sequential).
+
+Both assistants share this backend as their custom LLM; the endpoint switches
+behaviour by the call's `metadata.mode` (`inbound` vs `outbound`). They're also
+registered as a VAPI **squad**. Create them with `python scripts/setup_vapi_assistant.py`
+(after setting `PUBLIC_BASE_URL` to a public tunnel), then set
+`VAPI_INBOUND_ASSISTANT_ID` / `VAPI_OUTBOUND_ASSISTANT_ID` / `VAPI_PHONE_NUMBER_ID`.
+
+**Handoff JSON** (inbound → each outbound call):
+```json
+{
+  "coverage_request_id": "uuid",
+  "shift": {"shift_id":"uuid","start":"ISO","end":"ISO","role":"guard","location":"..."},
+  "requester": {"staff_id":"uuid","name":"Haseeb Khan"},
+  "candidate": {"staff_id":"uuid","name":"Alice Demo","phone":"+1..."}
+}
+```
+
+> **Public tunnel:** VAPI must reach this backend over the internet. Cloudflare quick
+> tunnels can be unreliable; an SSH tunnel works well and needs no account:
+> `ssh -R 80:localhost:8000 nokey@localhost.run` (or `ngrok http 8000`). Set
+> `PUBLIC_BASE_URL` to the printed URL.
+
 ## Project layout
 ```
 app/

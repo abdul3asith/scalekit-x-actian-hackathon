@@ -36,9 +36,20 @@ class Settings(BaseSettings):
     actian_host: str = "localhost"
     actian_port: int = 6574
 
-    # VAPI (used by the setup script only)
+    # VAPI
     vapi_api_key: str = ""
+    vapi_base_url: str = "https://api.vapi.ai"
     vapi_phone_number_id: str = ""
+    vapi_inbound_assistant_id: str = ""
+    vapi_outbound_assistant_id: str = ""
+
+    @property
+    def outbound_calling_ready(self) -> bool:
+        return bool(
+            self.vapi_api_key
+            and self.vapi_phone_number_id
+            and self.vapi_outbound_assistant_id
+        )
 
     @property
     def scalekit_configured(self) -> bool:
