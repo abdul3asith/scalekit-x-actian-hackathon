@@ -22,6 +22,7 @@
   },
   "homepage": "https://github.com/abdul3asith/scalekit-x-actian-hackathon#readme",
   "dependencies": {
+    "@actian/vectorai-client": "^1.0.2",
     "axios": "^1.18.1",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",

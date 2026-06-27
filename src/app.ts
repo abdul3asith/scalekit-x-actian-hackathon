@@ -1,8 +1,11 @@
 import express from "express";
 import employeeRouter from "./api/employee";
+import memoryRouter from "./api/memory";
+import ragRouter from "./api/rag";
 import scopeRouter from "./api/scope";
 import sessionRouter from "./api/session";
 import dbHealthRouter from "./db/health";
+
 const app = express();
 
 app.use(express.json());
@@ -15,5 +18,7 @@ app.use(dbHealthRouter);
 app.use("/scope", scopeRouter);
 app.use("/employees", employeeRouter)
 app.use("/sessions", sessionRouter);
+app.use("/memory", memoryRouter);
+app.use("/rag", ragRouter)
 
 export default app;
