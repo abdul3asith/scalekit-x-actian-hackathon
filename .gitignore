@@ -20,3 +20,7 @@ venv/
 # Local data
 postgres_data/
 *.log
+
+# Playwright / browser artifacts
+.playwright-mcp/
+*.png
